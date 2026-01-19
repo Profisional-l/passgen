@@ -1,3 +1,10 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "logo",
+      "description": "Crypt Keeper Logo",
+      "imageUrl": "https://images.unsplash.com/photo-1761805364441-6271530b0486?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxMHx8c2hpZWxkJTIwc2VjdXJpdHl8ZW58MHx8fHwxNzY4NzM4NTIyfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "shield security"
+    }
+  ]
 }
