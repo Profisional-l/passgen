@@ -1,16 +1,27 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import type { VaultEntry } from '@/lib/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Copy, Eye, EyeOff, MoreVertical, Pencil, Trash2 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import AddEditItemDialog from './AddEditItemDialog';
-import { useVault } from '@/context/VaultContext';
-import { encryptVault } from '@/lib/crypto';
-import { persistEncryptedVault } from '@/lib/storage';
+import { useState } from "react";
+import type { VaultEntry } from "@/lib/types";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Copy, Eye, EyeOff, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import AddEditItemDialog from "./AddEditItemDialog";
+import { useVault } from "@/context/VaultContext";
+import { encryptVault } from "@/lib/crypto";
+import { persistEncryptedVault } from "@/lib/storage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,66 +32,92 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+} from "@/components/ui/alert-dialog";
 
 export default function VaultItem({ item }: { item: VaultEntry }) {
   const { toast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { vault, setVault, masterPassword, login, kdfParams, kdfSalt } = useVault();
+  const { vault, setVault, masterPassword, login, kdfParams, kdfSalt } =
+    useVault();
 
   const handleCopy = (text: string | undefined, fieldName: string) => {
     if (!text) return;
     navigator.clipboard.writeText(text);
     toast({ title: `${fieldName} copied to clipboard` });
   };
-  
+
   const handleDelete = async () => {
     if (!vault || !masterPassword || !login || !kdfParams || !kdfSalt) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Cannot perform action. Vault is locked.' });
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Cannot perform action. Vault is locked.",
+      });
       return;
     }
-    
+
     const password = masterPassword;
 
     try {
-        const updatedEntries = vault.entries.filter(i => i.id !== item.id);
-        const updatedVault = { ...vault, vault_version: vault.vault_version + 1, entries: updatedEntries };
+      const updatedEntries = vault.entries.filter((i) => i.id !== item.id);
+      const updatedVault = {
+        ...vault,
+        vault_version: vault.vault_version + 1,
+        entries: updatedEntries,
+      };
 
-        const encrypted = await encryptVault(updatedVault, password, { kdf_params: kdfParams, kdf_salt: kdfSalt });
-        try {
-          const response = await fetch('/api/vault', {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ login, ...encrypted }),
-          });
+      const encrypted = await encryptVault(updatedVault, password, {
+        kdf_params: kdfParams,
+        kdf_salt: kdfSalt,
+      });
+      try {
+        const response = await fetch("/api/vault", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login, ...encrypted }),
+        });
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            if (response.status === 409) {
-              toast({ variant: 'destructive', title: 'Conflict Detected', description: "Your vault is out of sync. Please unlock it again to get the latest version before making changes." });
-            } else {
-              throw new Error(errorData.error || 'Failed to delete item.');
-            }
-            return;
+        if (!response.ok) {
+          const errorData = await response.json();
+          if (response.status === 409) {
+            toast({
+              variant: "destructive",
+              title: "Conflict Detected",
+              description:
+                "Your vault is out of sync. Please unlock it again to get the latest version before making changes.",
+            });
+          } else {
+            throw new Error(errorData.error || "Failed to delete item.");
           }
-          
-          await persistEncryptedVault(login, encrypted);
-          setVault(updatedVault);
-          toast({ title: 'Item Deleted', description: `"${item.title}" has been removed from your vault.` });
-        } catch (networkError) {
-          await persistEncryptedVault(login, encrypted);
-          setVault(updatedVault);
-          toast({
-            title: 'Deleted Locally',
-            description: 'No server connection. Deletion stored locally; sync when online.',
-          });
+          return;
         }
-    } catch(e) {
-        toast({ variant: 'destructive', title: 'Error', description: e instanceof Error ? e.message : 'An unknown error occurred.' });
+
+        await persistEncryptedVault(login, encrypted);
+        setVault(updatedVault);
+        toast({
+          title: "Item Deleted",
+          description: `"${item.title}" has been removed from your vault.`,
+        });
+      } catch (networkError) {
+        await persistEncryptedVault(login, encrypted);
+        setVault(updatedVault);
+        toast({
+          title: "Deleted Locally",
+          description:
+            "No server connection. Deletion stored locally; sync when online.",
+        });
+      }
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description:
+          e instanceof Error ? e.message : "An unknown error occurred.",
+      });
     } finally {
-        setIsDeleting(false);
+      setIsDeleting(false);
     }
   };
 
@@ -93,7 +130,11 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0"
+              >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
@@ -103,22 +144,28 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
               </DropdownMenuItem>
               <AlertDialog onOpenChange={setIsDeleting} open={isDeleting}>
                 <AlertDialogTrigger asChild>
-                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                      <Trash2 className="mr-2 h-4 w-4 text-destructive" /> 
-                      <span className="text-destructive">Delete</span>
-                    </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                    <Trash2 className="mr-2 h-4 w-4 text-destructive" />
+                    <span className="text-destructive">Delete</span>
+                  </DropdownMenuItem>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            This will permanently delete "{item.title}". This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">Continue</AlertDialogAction>
-                    </AlertDialogFooter>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete "{item.title}". This action
+                      cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDelete}
+                      className="bg-destructive hover:bg-destructive/90"
+                    >
+                      Continue
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
             </DropdownMenuContent>
@@ -126,21 +173,35 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
         </CardHeader>
         <CardContent className="space-y-4 flex-grow">
           <div className="flex items-center gap-2">
-            <p className="flex-grow font-mono text-sm">
-              {item.username}
-            </p>
-            <Button variant="ghost" size="icon" onClick={() => handleCopy(item.username, 'Username')}>
+            <p className="flex-grow font-mono text-sm">{item.username}</p>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleCopy(item.username, "Username")}
+            >
               <Copy className="h-4 w-4" />
             </Button>
           </div>
           <div className="flex items-center gap-2">
             <p className="flex-grow font-mono text-sm">
-              {showPassword ? item.password : '••••••••••••••••'}
+              {showPassword ? item.password : "••••••••••••••••"}
             </p>
-            <Button variant="ghost" size="icon" onClick={() => setShowPassword(!showPassword)}>
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => handleCopy(item.password, 'Password')}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleCopy(item.password, "Password")}
+            >
               <Copy className="h-4 w-4" />
             </Button>
           </div>
@@ -149,7 +210,11 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
               <p className="flex-grow text-sm text-muted-foreground truncate">
                 {item.url}
               </p>
-              <Button variant="ghost" size="icon" onClick={() => handleCopy(item.url, 'URL')}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleCopy(item.url, "URL")}
+              >
                 <Copy className="h-4 w-4" />
               </Button>
             </div>
