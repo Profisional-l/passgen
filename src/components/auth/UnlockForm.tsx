@@ -21,7 +21,7 @@ const formSchema = z.object({
 export default function UnlockForm() {
   const router = useRouter();
   const { toast } = useToast();
-  const { setVault } = useVault();
+  const { setUnlockedVault } = useVault();
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -48,8 +48,8 @@ export default function UnlockForm() {
         values.password
       );
 
-      // Store the full decrypted vault (including version) in context
-      setVault({ ...decryptedVault, version: encryptedData.version });
+      // Store the full decrypted vault and the master password in context
+      setUnlockedVault({ ...decryptedVault, version: encryptedData.version }, values.password);
       
       toast({
         title: 'Success!',

@@ -12,20 +12,16 @@ import { Download, Upload, Loader2 } from 'lucide-react';
 
 export default function BackupManager() {
   const { toast } = useToast();
-  const { vault, setVault } = useVault();
+  const { vault, setUnlockedVault, masterPassword } = useVault();
   const [isImporting, setIsImporting] = useState(false);
 
   const handleExport = async () => {
-    if (!vault) {
+    if (!vault || !masterPassword) {
       toast({ variant: 'destructive', title: 'Error', description: 'Vault is not loaded.' });
       return;
     }
     
-    const password = prompt("Для экспорта вашего хранилища, пожалуйста, введите ваш мастер-пароль.");
-    if (!password) {
-        toast({ variant: 'destructive', title: 'Экспорт отменен', description: 'Мастер-пароль не предоставлен.' });
-        return;
-    }
+    const password = masterPassword;
 
     try {
         const { encrypted, salt, params } = await encryptVault(vault, password);
@@ -41,7 +37,7 @@ export default function BackupManager() {
 
         toast({ title: 'Export Successful', description: 'Your encrypted vault backup has been downloaded.' });
     } catch(e) {
-        toast({ variant: 'destructive', title: 'Export Failed', description: 'Incorrect master password or another error occurred.' });
+        toast({ variant: 'destructive', title: 'Export Failed', description: 'An error occurred during export.' });
     }
   };
 
@@ -62,6 +58,7 @@ export default function BackupManager() {
         const password = prompt("Для импорта резервной копии, пожалуйста, введите соответствующий мастер-пароль.");
         if (!password) {
             toast({ variant: 'destructive', title: 'Импорт отменен', description: 'Мастер-пароль не предоставлен.' });
+            setIsImporting(false);
             return;
         }
 
@@ -85,7 +82,7 @@ export default function BackupManager() {
         
         const fullVault: Vault = { ...decryptedVault, version: responseData.version };
 
-        setVault(fullVault);
+        setUnlockedVault(fullVault, password);
         toast({ title: 'Import Successful', description: 'Vault has been restored from backup.' });
 
     } catch (error) {

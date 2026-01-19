@@ -6,29 +6,44 @@ import { useRouter } from 'next/navigation';
 
 interface VaultContextType {
   vault: Vault | null;
+  masterPassword: string | null;
   isLocked: boolean;
-  setVault: (vault: Vault | null) => void;
+  setUnlockedVault: (vault: Vault, password: string) => void;
+  setVault: (vault: Vault) => void;
   lockVault: () => void;
 }
 
 const VaultContext = createContext<VaultContextType | undefined>(undefined);
 
 export function VaultProvider({ children }: { children: ReactNode }) {
-  const [vault, setVault] = useState<Vault | null>(null);
+  const [vault, setVaultInternal] = useState<Vault | null>(null);
+  const [masterPassword, setMasterPassword] = useState<string | null>(null);
   const router = useRouter();
 
-  const isLocked = vault === null;
+  const isLocked = vault === null || masterPassword === null;
 
   const lockVault = () => {
-    setVault(null);
+    setVaultInternal(null);
+    setMasterPassword(null);
     // Clear sensitive data from memory
     console.log('Vault locked.');
     router.push('/unlock');
   };
 
+  const setUnlockedVault = (newVault: Vault, password: string) => {
+    setVaultInternal(newVault);
+    setMasterPassword(password);
+  };
+  
+  const setVault = (newVault: Vault) => {
+    setVaultInternal(newVault);
+  }
+
   const value = {
     vault,
+    masterPassword,
     isLocked,
+    setUnlockedVault,
     setVault,
     lockVault,
   };

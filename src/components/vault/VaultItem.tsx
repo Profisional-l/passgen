@@ -27,7 +27,7 @@ export default function VaultItem({ item }: { item: VaultItemType }) {
   const [showPassword, setShowPassword] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { vault, setVault } = useVault();
+  const { vault, setVault, masterPassword } = useVault();
 
   const handleCopy = (text: string | undefined, fieldName: string) => {
     if (!text) return;
@@ -36,14 +36,12 @@ export default function VaultItem({ item }: { item: VaultItemType }) {
   };
   
   const handleDelete = async () => {
-    if (!vault) return;
-    
-    // This part requires re-prompting for password to re-encrypt
-    const password = prompt("Для подтверждения удаления, пожалуйста, введите ваш мастер-пароль.");
-    if (!password) {
-        toast({ variant: 'destructive', title: 'Удаление отменено', description: 'Мастер-пароль не предоставлен.' });
-        return;
+    if (!vault || !masterPassword) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Cannot perform action. Vault is locked.' });
+      return;
     }
+    
+    const password = masterPassword;
 
     try {
         const updatedItems = vault.items.filter(i => i.id !== item.id);
@@ -105,7 +103,7 @@ export default function VaultItem({ item }: { item: VaultItemType }) {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This will permanently delete "{item.name}". This action requires your master password to confirm and cannot be undone.
+                            This will permanently delete "{item.name}". This action cannot be undone.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { v4 as uuidv4 } from 'uuid';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -35,7 +34,7 @@ type AddEditItemDialogProps = {
 
 export default function AddEditItemDialog({ itemToEdit, isOpen, onOpenChange }: AddEditItemDialogProps) {
   const { toast } = useToast();
-  const { vault, setVault } = useVault();
+  const { vault, setVault, masterPassword } = useVault();
   const [isLoading, setIsLoading] = useState(false);
   const isEditing = !!itemToEdit;
 
@@ -52,18 +51,13 @@ export default function AddEditItemDialog({ itemToEdit, isOpen, onOpenChange }: 
   }, [itemToEdit, form, isOpen]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!vault) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Vault is not loaded.' });
+    if (!vault || !masterPassword) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Vault is not loaded or session has expired.' });
       return;
     }
     setIsLoading(true);
 
-    const password = prompt(`Чтобы сохранить изменения, введите ваш мастер-пароль.`);
-    if (!password) {
-      toast({ variant: 'destructive', title: 'Сохранение отменено', description: 'Мастер-пароль не предоставлен.' });
-      setIsLoading(false);
-      return;
-    }
+    const password = masterPassword;
 
     try {
       let updatedItems: VaultItem[];
