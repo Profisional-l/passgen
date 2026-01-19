@@ -21,9 +21,9 @@ export default function BackupManager() {
       return;
     }
     
-    const password = prompt("To export your vault, please enter your master password.");
+    const password = prompt("Для экспорта вашего хранилища, пожалуйста, введите ваш мастер-пароль.");
     if (!password) {
-        toast({ variant: 'destructive', title: 'Export Canceled', description: 'Master password not provided.' });
+        toast({ variant: 'destructive', title: 'Экспорт отменен', description: 'Мастер-пароль не предоставлен.' });
         return;
     }
 
@@ -59,9 +59,9 @@ export default function BackupManager() {
             throw new Error("Invalid backup file format.");
         }
 
-        const password = prompt("To import the backup, please enter the associated master password.");
+        const password = prompt("Для импорта резервной копии, пожалуйста, введите соответствующий мастер-пароль.");
         if (!password) {
-            toast({ variant: 'destructive', title: 'Import Canceled', description: 'Master password not provided.' });
+            toast({ variant: 'destructive', title: 'Импорт отменен', description: 'Мастер-пароль не предоставлен.' });
             return;
         }
 

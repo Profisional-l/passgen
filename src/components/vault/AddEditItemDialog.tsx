@@ -58,9 +58,9 @@ export default function AddEditItemDialog({ itemToEdit, isOpen, onOpenChange }: 
     }
     setIsLoading(true);
 
-    const password = prompt(`To save changes, please enter your master password.`);
+    const password = prompt(`Чтобы сохранить изменения, введите ваш мастер-пароль.`);
     if (!password) {
-      toast({ variant: 'destructive', title: 'Save Canceled', description: 'Master password not provided.' });
+      toast({ variant: 'destructive', title: 'Сохранение отменено', description: 'Мастер-пароль не предоставлен.' });
       setIsLoading(false);
       return;
     }

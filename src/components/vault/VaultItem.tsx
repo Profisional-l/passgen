@@ -39,9 +39,9 @@ export default function VaultItem({ item }: { item: VaultItemType }) {
     if (!vault) return;
     
     // This part requires re-prompting for password to re-encrypt
-    const password = prompt("To confirm deletion, please enter your master password.");
+    const password = prompt("Для подтверждения удаления, пожалуйста, введите ваш мастер-пароль.");
     if (!password) {
-        toast({ variant: 'destructive', title: 'Deletion cancelled', description: 'Master password not provided.' });
+        toast({ variant: 'destructive', title: 'Удаление отменено', description: 'Мастер-пароль не предоставлен.' });
         return;
     }
 
