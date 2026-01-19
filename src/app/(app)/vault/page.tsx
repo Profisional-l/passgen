@@ -17,7 +17,7 @@ export default function VaultPage() {
         <div>
           <h1 className="text-3xl font-headline">My Vault</h1>
           <p className="text-muted-foreground">
-            You have {vault?.items.length ?? 0} item(s) saved.
+            You have {vault?.entries.length ?? 0} item(s) saved.
           </p>
         </div>
         <Button onClick={() => setIsAddOpen(true)}>

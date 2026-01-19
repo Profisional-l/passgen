@@ -1,43 +1,94 @@
 'use client';
 
-import type { KDFParams, Vault, CharacterSet } from './types';
+import type { CharacterSet, EncryptedVault, KDFParams, Vault } from './types';
 
-const KDF_ITERATIONS = 500000;
-const KDF_HASH = 'SHA-256';
+const DEFAULT_ARGON2_PARAMS: KDFParams = {
+  algorithm: 'argon2id',
+  memory: 64 * 1024, // KB
+  iterations: 3,
+  parallelism: 2,
+  hash: 'SHA-256',
+};
+
+const FALLBACK_PBKDF2_PARAMS: KDFParams = {
+  algorithm: 'pbkdf2',
+  iterations: 100_000,
+  hash: 'SHA-256',
+};
 
 // UTILITY FUNCTIONS
-const stringToArrayBuffer = (str: string): Uint8Array => new TextEncoder().encode(str);
-const arrayBufferToString = (buffer: ArrayBuffer): string => new TextDecoder().decode(buffer);
-const arrayBufferToBase64 = (buffer: ArrayBuffer): string => btoa(String.fromCharCode(...new Uint8Array(buffer)));
-const base64ToArrayBuffer = (base64: string): Uint8Array => Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+const enc = new TextEncoder();
+const dec = new TextDecoder();
 
-// --- KEY DERIVATION ---
-export const generateSalt = (): Uint8Array => crypto.getRandomValues(new Uint8Array(16));
+export const stringToArrayBuffer = (str: string): Uint8Array => enc.encode(str);
+export const arrayBufferToString = (buffer: ArrayBuffer): string => dec.decode(buffer);
+export const arrayBufferToBase64 = (buffer: ArrayBuffer): string =>
+  btoa(String.fromCharCode(...new Uint8Array(buffer)));
+export const base64ToArrayBuffer = (base64: string): Uint8Array =>
+  Uint8Array.from(atob(base64), c => c.charCodeAt(0));
 
-export const getKDFParams = (): KDFParams => ({
-  iterations: KDF_ITERATIONS,
-  hash: KDF_HASH,
-});
+export const generateSalt = (length = 16): Uint8Array =>
+  crypto.getRandomValues(new Uint8Array(length));
 
-async function deriveKey(password: string, salt: Uint8Array, params: KDFParams): Promise<CryptoKey> {
+export const getDefaultKdfParams = (): KDFParams => DEFAULT_ARGON2_PARAMS;
+
+async function deriveMasterKeyBytes(password: string, salt: Uint8Array, params: KDFParams): Promise<ArrayBuffer> {
+  if (params.algorithm === 'argon2id') {
+    try {
+      // Prefer bundled build to avoid WASM loader issues in some bundlers (e.g. Turbopack)
+      const argon2: any = await import('argon2-browser/dist/argon2-bundled.min.js');
+      const { hash } = await argon2.hash({
+        pass: password,
+        salt,
+        time: params.iterations,
+        mem: params.memory ?? 64 * 1024,
+        parallelism: params.parallelism ?? 2,
+        hashLen: 32,
+        type: argon2.ArgonType.Argon2id,
+        digest: 'sha256',
+      });
+      return hash.buffer;
+    } catch (err) {
+      console.warn('Argon2id unavailable, falling back to PBKDF2', err);
+      return deriveMasterKeyBytes(password, salt, FALLBACK_PBKDF2_PARAMS);
+    }
+  }
+
   const masterKey = await crypto.subtle.importKey(
     'raw',
     stringToArrayBuffer(password),
     { name: 'PBKDF2' },
     false,
-    ['deriveKey']
+    ['deriveBits']
   );
 
-  return crypto.subtle.deriveKey(
+  const bits = await crypto.subtle.deriveBits(
     {
       name: 'PBKDF2',
-      salt: salt,
+      salt,
       iterations: params.iterations,
       hash: params.hash,
     },
     masterKey,
+    256
+  );
+
+  return bits;
+}
+
+async function deriveEncryptionKey(masterKeyBytes: ArrayBuffer): Promise<CryptoKey> {
+  const masterKey = await crypto.subtle.importKey('raw', masterKeyBytes, 'HKDF', false, ['deriveKey']);
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array([]),
+      info: stringToArrayBuffer('vault-encryption'),
+    },
+    masterKey,
     { name: 'AES-GCM', length: 256 },
-    true,
+    false,
     ['encrypt', 'decrypt']
   );
 }
@@ -45,43 +96,43 @@ async function deriveKey(password: string, salt: Uint8Array, params: KDFParams):
 // --- VAULT ENCRYPTION/DECRYPTION ---
 export async function encryptVault(
   vault: Vault,
-  password: string
-): Promise<{ encrypted: { ciphertext: string; nonce: string }; salt: string; params: KDFParams }> {
-  const salt = generateSalt();
-  const params = getKDFParams();
-  const key = await deriveKey(password, salt, params);
+  password: string,
+  opts?: { kdf_salt?: string; kdf_params?: KDFParams }
+): Promise<EncryptedVault> {
+  const kdf_salt_bytes = opts?.kdf_salt ? base64ToArrayBuffer(opts.kdf_salt) : generateSalt();
+  const kdf_salt = opts?.kdf_salt ?? arrayBufferToBase64(kdf_salt_bytes);
+  const kdf_params = opts?.kdf_params ?? getDefaultKdfParams();
+  const masterBytes = await deriveMasterKeyBytes(password, kdf_salt_bytes, kdf_params);
+  const encryptionKey = await deriveEncryptionKey(masterBytes);
   const nonce = crypto.getRandomValues(new Uint8Array(12));
 
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: nonce },
-    key,
+    encryptionKey,
     stringToArrayBuffer(JSON.stringify(vault))
   );
 
   return {
-    encrypted: {
-      ciphertext: arrayBufferToBase64(ciphertext),
-      nonce: arrayBufferToBase64(nonce),
-    },
-    salt: arrayBufferToBase64(salt),
-    params,
+    vault_ciphertext: arrayBufferToBase64(ciphertext),
+    vault_nonce: arrayBufferToBase64(nonce),
+    kdf_salt,
+    kdf_params,
+    vault_version: vault.vault_version,
   };
 }
 
 export async function decryptVault(
-  ciphertext: string,
-  nonce: string,
-  salt: string,
-  params: KDFParams,
+  payload: EncryptedVault,
   password: string
 ): Promise<Vault> {
-  const key = await deriveKey(password, base64ToArrayBuffer(salt), params);
+  const masterBytes = await deriveMasterKeyBytes(password, base64ToArrayBuffer(payload.kdf_salt), payload.kdf_params);
+  const encryptionKey = await deriveEncryptionKey(masterBytes);
 
   try {
     const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: base64ToArrayBuffer(nonce) },
-      key,
-      base64ToArrayBuffer(ciphertext)
+      { name: 'AES-GCM', iv: base64ToArrayBuffer(payload.vault_nonce) },
+      encryptionKey,
+      base64ToArrayBuffer(payload.vault_ciphertext)
     );
     return JSON.parse(arrayBufferToString(decrypted));
   } catch (error) {
@@ -108,7 +159,6 @@ export function generatePassword(length: number, charSets: CharacterSet[], exclu
   }
   
   if (availableChars.length === 0) {
-    // Ensure there's at least one character to pick from
     availableChars = charPools.lowercase;
   }
 
@@ -120,17 +170,24 @@ export function generatePassword(length: number, charSets: CharacterSet[], exclu
     password += availableChars[randomValues[i] % availableChars.length];
   }
 
-  // Ensure password contains at least one character from each selected set
   const passwordChars = new Set(password.split(''));
   for (const set of charSets) {
-      const setChars = charPools[set].split('');
-      const hasCharFromSet = setChars.some(char => passwordChars.has(char));
-      if (!hasCharFromSet) {
-          // If a required character set is missing, regenerate the password.
-          // This is a simple strategy; more complex ones could insert missing chars.
-          return generatePassword(length, charSets, excludeChars);
-      }
+    const setChars = charPools[set].split('');
+    const hasCharFromSet = setChars.some(char => passwordChars.has(char));
+    if (!hasCharFromSet) {
+      return generatePassword(length, charSets, excludeChars);
+    }
   }
 
   return password;
 }
+
+export const buildEmptyVault = (): Vault => ({
+  version: 1 as const,
+  vault_version: 1,
+  entries: [],
+  settings: {
+    autoLockMinutes: 3,
+    clipboardTimeoutSeconds: 20,
+  },
+});

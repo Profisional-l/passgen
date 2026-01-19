@@ -1,10 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useCallback, useRef } from 'react';
 
 const useAutoLock = (timeout: number, onIdle: () => void) => {
-  const router = useRouter();
   const timeoutId = useRef<NodeJS.Timeout | null>(null);
 
   const resetTimer = useCallback(() => {
@@ -34,7 +32,7 @@ const useAutoLock = (timeout: number, onIdle: () => void) => {
       }
       events.forEach(event => window.removeEventListener(event, handleActivity));
     };
-  }, [resetTimer, router]);
+  }, [resetTimer]);
 
   return;
 };

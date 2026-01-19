@@ -9,14 +9,22 @@ import { useVault } from '@/context/VaultContext';
 import { decryptVault, encryptVault } from '@/lib/crypto';
 import type { EncryptedVault, Vault } from '@/lib/types';
 import { Download, Upload, Loader2 } from 'lucide-react';
+import { persistEncryptedVault } from '@/lib/storage';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 
 export default function BackupManager() {
   const { toast } = useToast();
-  const { vault, setUnlockedVault, masterPassword } = useVault();
+  const { vault, setUnlockedVault, masterPassword, login, kdfParams, kdfSalt } = useVault();
   const [isImporting, setIsImporting] = useState(false);
+  const [pendingBackup, setPendingBackup] = useState<EncryptedVault | null>(null);
+  const [pendingBackupLogin, setPendingBackupLogin] = useState<string>('');
+  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [importPassword, setImportPassword] = useState('');
+  const [isFinalizingImport, setIsFinalizingImport] = useState(false);
 
   const handleExport = async () => {
-    if (!vault || !masterPassword) {
+    if (!vault || !masterPassword || !login || !kdfParams || !kdfSalt) {
       toast({ variant: 'destructive', title: 'Error', description: 'Vault is not loaded.' });
       return;
     }
@@ -24,8 +32,8 @@ export default function BackupManager() {
     const password = masterPassword;
 
     try {
-        const { encrypted, salt, params } = await encryptVault(vault, password);
-        const backupData: EncryptedVault = { ...encrypted, salt, params, version: vault.version };
+        const encrypted = await encryptVault(vault, password, { kdf_params: kdfParams, kdf_salt: kdfSalt });
+        const backupData = { format: 1, login, ...encrypted };
 
         const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -49,41 +57,19 @@ export default function BackupManager() {
 
     try {
         const content = await file.text();
-        const backupData: EncryptedVault = JSON.parse(content);
+        const parsed = JSON.parse(content);
+        if (parsed.format !== 1) {
+          throw new Error('Unsupported backup format');
+        }
+        const backupData: EncryptedVault = parsed;
         
-        if (!backupData.ciphertext || !backupData.nonce || !backupData.salt || !backupData.params || backupData.version === undefined) {
+        if (!backupData.vault_ciphertext || !backupData.vault_nonce || !backupData.kdf_salt || !backupData.kdf_params || backupData.vault_version === undefined) {
             throw new Error("Invalid backup file format.");
         }
-
-        const password = prompt("Для импорта резервной копии, пожалуйста, введите соответствующий мастер-пароль.");
-        if (!password) {
-            toast({ variant: 'destructive', title: 'Импорт отменен', description: 'Мастер-пароль не предоставлен.' });
-            setIsImporting(false);
-            return;
-        }
-
-        const decryptedVault = await decryptVault(backupData.ciphertext, backupData.nonce, backupData.salt, backupData.params, password);
-        
-        // At this point, we have the decrypted new vault.
-        // We should now encrypt it again and PUT it to the server.
-        const { encrypted, salt, params } = await encryptVault(decryptedVault, password);
-        
-        const response = await fetch('/api/vault', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...encrypted, salt, params, version: backupData.version }),
-        });
-        
-        if (!response.ok) {
-          throw new Error("Failed to update server with imported vault. If this is a new device, this might be expected. Try unlocking again.");
-        }
-        
-        const responseData = await response.json();
-        
-        const fullVault: Vault = { ...decryptedVault, version: responseData.version };
-
-        setUnlockedVault(fullVault, password);
-        toast({ title: 'Import Successful', description: 'Vault has been restored from backup.' });
+        setPendingBackup(backupData);
+        setPendingBackupLogin((parsed.login ?? login ?? '').toLowerCase());
+        setImportPassword('');
+        setIsPasswordDialogOpen(true);
 
     } catch (error) {
         console.error(error);
@@ -99,8 +85,68 @@ export default function BackupManager() {
     }
   };
 
+  const finalizeImport = async () => {
+    if (!pendingBackup) return;
+    const importLogin = pendingBackupLogin.trim();
+    if (!importLogin) {
+      toast({ variant: 'destructive', title: 'Import Failed', description: 'Login is missing. Please unlock or include login in backup.' });
+      return;
+    }
+    if (!importPassword) {
+      toast({ variant: 'destructive', title: 'Import Failed', description: 'Master password is required.' });
+      return;
+    }
+
+    setIsFinalizingImport(true);
+    try {
+      const decryptedVault = await decryptVault(pendingBackup, importPassword);
+
+      const encrypted = await encryptVault(decryptedVault, importPassword, {
+        kdf_params: pendingBackup.kdf_params,
+        kdf_salt: pendingBackup.kdf_salt,
+      });
+
+      // Try to sync to server; if offline/unavailable, still persist locally
+      try {
+        const response = await fetch('/api/vault', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ login: importLogin, ...encrypted }),
+        });
+        if (!response.ok) {
+          throw new Error('Server rejected update');
+        }
+      } catch (networkError) {
+        toast({
+          title: 'Imported Locally',
+          description: 'Server unreachable. Vault restored locally; sync when online.',
+        });
+      }
+
+      await persistEncryptedVault(importLogin, encrypted);
+      const fullVault: Vault = { ...decryptedVault, vault_version: encrypted.vault_version };
+      setUnlockedVault(fullVault, importPassword, importLogin, { salt: encrypted.kdf_salt, params: encrypted.kdf_params });
+
+      toast({ title: 'Import Successful', description: 'Vault has been restored from backup.' });
+      setIsPasswordDialogOpen(false);
+      setPendingBackup(null);
+      setPendingBackupLogin('');
+      setImportPassword('');
+    } catch (err) {
+      console.error(err);
+      toast({
+        variant: 'destructive',
+        title: 'Import Failed',
+        description: err instanceof Error ? err.message : 'An unknown error occurred.',
+      });
+    } finally {
+      setIsFinalizingImport(false);
+    }
+  };
+
   return (
-    <div className="grid md:grid-cols-2 gap-8">
+    <>
+      <div className="grid md:grid-cols-2 gap-8">
       <Card className="bg-card/50 backdrop-blur-lg border border-border/30">
         <CardHeader>
           <CardTitle className="font-headline">Export Vault</CardTitle>
@@ -134,6 +180,55 @@ export default function BackupManager() {
             </div>
         </CardContent>
       </Card>
-    </div>
+      </div>
+
+      <Dialog open={isPasswordDialogOpen} onOpenChange={open => {
+        setIsPasswordDialogOpen(open);
+        if (!open) {
+          setPendingBackup(null);
+          setPendingBackupLogin('');
+          setImportPassword('');
+        }
+      }}>
+        <DialogContent className="sm:max-w-[450px] bg-background/80 backdrop-blur-lg">
+          <DialogHeader>
+            <DialogTitle className="font-headline">Enter Master Password</DialogTitle>
+            <DialogDescription>
+              To restore this encrypted backup, enter the master password used to create it. It is never sent to the server.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Login</Label>
+              <Input value={pendingBackupLogin} readOnly />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="import-master-password">Master Password</Label>
+              <Input
+                id="import-master-password"
+                type="password"
+                value={importPassword}
+                onChange={(e) => setImportPassword(e.target.value)}
+                placeholder="••••••••••••"
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsPasswordDialogOpen(false)}
+              disabled={isFinalizingImport}
+            >
+              Cancel
+            </Button>
+            <Button onClick={finalizeImport} disabled={isFinalizingImport}>
+              {isFinalizingImport && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

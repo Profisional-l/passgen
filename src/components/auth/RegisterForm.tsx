@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { encryptVault } from '@/lib/crypto';
-import type { Vault } from '@/lib/types';
+import { buildEmptyVault, encryptVault } from '@/lib/crypto';
+import { persistEncryptedVault } from '@/lib/storage';
 import { Loader2 } from 'lucide-react';
 
 const formSchema = z.object({
+  login: z.string().min(3).max(64).regex(/^[a-zA-Z0-9._-]+$/, { message: 'Login: letters, digits, . _ -' }),
   password: z.string().min(12, { message: 'Password must be at least 12 characters long.' }),
   confirmPassword: z.string(),
 }).refine(data => data.password === data.confirmPassword, {
@@ -29,6 +30,7 @@ export default function RegisterForm() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      login: '',
       password: '',
       confirmPassword: '',
     },
@@ -37,21 +39,17 @@ export default function RegisterForm() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     try {
-      const emptyVault: Vault = {
-        version: 0,
-        items: [],
-      };
+      const login = values.login.toLowerCase();
+      const emptyVault = buildEmptyVault();
 
-      const { encrypted, salt, params } = await encryptVault(emptyVault, values.password);
+      const encrypted = await encryptVault(emptyVault, values.password);
 
-      const response = await fetch('/api/vault', {
-        method: 'PUT',
+      const response = await fetch('/api/register', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          login,
           ...encrypted,
-          salt,
-          params,
-          version: 0, // Initial version
         }),
       });
       
@@ -59,6 +57,8 @@ export default function RegisterForm() {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to create vault.');
       }
+
+      await persistEncryptedVault(login, encrypted);
       
       toast({
         title: 'Vault Created!',
@@ -82,6 +82,19 @@ export default function RegisterForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <FormField
+          control={form.control}
+          name="login"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Login</FormLabel>
+              <FormControl>
+                <Input placeholder="e.g. vanya" autoCapitalize="none" autoCorrect="off" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         <FormField
           control={form.control}
           name="password"

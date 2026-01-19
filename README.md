@@ -1,5 +1,31 @@
-# Firebase Studio
+# Crypt Keeper (личный zero‑knowledge менеджер паролей)
 
-This is a NextJS starter in Firebase Studio.
+## Dev
 
-To get started, take a look at src/app/page.tsx.
+```bash
+npm install
+npm run dev
+```
+
+## Prod build
+
+```bash
+npm run build
+npm start
+```
+
+## Бэкапы / восстановление
+
+Смотри `docs/DR.md`.
+
+### Сделать бэкап SQLite
+
+```bash
+npm run db:backup
+```
+
+### Восстановить SQLite из бэкапа
+
+```bash
+npm run db:restore -- backups/vault-<timestamp>.db
+```

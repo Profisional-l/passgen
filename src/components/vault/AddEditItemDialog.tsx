@@ -12,14 +12,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useVault } from '@/context/VaultContext';
 import { encryptVault } from '@/lib/crypto';
-import type { VaultItem } from '@/lib/types';
+import type { VaultEntry } from '@/lib/types';
 import { Loader2 } from 'lucide-react';
+import { persistEncryptedVault } from '@/lib/storage';
 
 // `uuid` is not in package.json, so we'll use a simple random generator
 const simpleUUID = () => crypto.randomUUID();
 
 const formSchema = z.object({
-  name: z.string().min(1, 'Name is required.'),
+  title: z.string().min(1, 'Title is required.'),
   username: z.string().min(1, 'Username is required.'),
   password: z.string().min(1, 'Password is required.'),
   url: z.string().url('Please enter a valid URL.').or(z.literal('')),
@@ -27,14 +28,14 @@ const formSchema = z.object({
 });
 
 type AddEditItemDialogProps = {
-  itemToEdit?: VaultItem;
+  itemToEdit?: VaultEntry;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
 export default function AddEditItemDialog({ itemToEdit, isOpen, onOpenChange }: AddEditItemDialogProps) {
   const { toast } = useToast();
-  const { vault, setVault, masterPassword } = useVault();
+  const { vault, setVault, masterPassword, login, kdfParams, kdfSalt } = useVault();
   const [isLoading, setIsLoading] = useState(false);
   const isEditing = !!itemToEdit;
 
@@ -46,12 +47,12 @@ export default function AddEditItemDialog({ itemToEdit, isOpen, onOpenChange }: 
     if (itemToEdit) {
       form.reset(itemToEdit);
     } else {
-      form.reset({ name: '', username: '', password: '', url: '', notes: '' });
+      form.reset({ title: '', username: '', password: '', url: '', notes: '' });
     }
   }, [itemToEdit, form, isOpen]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!vault || !masterPassword) {
+    if (!vault || !masterPassword || !login || !kdfParams || !kdfSalt) {
       toast({ variant: 'destructive', title: 'Error', description: 'Vault is not loaded or session has expired.' });
       return;
     }
@@ -60,39 +61,56 @@ export default function AddEditItemDialog({ itemToEdit, isOpen, onOpenChange }: 
     const password = masterPassword;
 
     try {
-      let updatedItems: VaultItem[];
+      let updatedItems: VaultEntry[];
       if (isEditing) {
-        updatedItems = vault.items.map(item =>
-          item.id === itemToEdit.id ? { ...item, ...values } : item
+        updatedItems = vault.entries.map(item =>
+          item.id === itemToEdit.id ? { ...item, ...values, updatedAt: new Date().toISOString() } : item
         );
       } else {
-        updatedItems = [...vault.items, { id: simpleUUID(), ...values }];
+        const now = new Date().toISOString();
+        updatedItems = [
+          ...vault.entries,
+          { id: simpleUUID(), ...values, tags: [], createdAt: now, updatedAt: now },
+        ];
       }
 
-      const updatedVault = { ...vault, items: updatedItems };
+      const updatedVault = {
+        ...vault,
+        vault_version: vault.vault_version + 1,
+        entries: updatedItems,
+      };
 
-      const { encrypted, salt, params } = await encryptVault(updatedVault, password);
+      const encrypted = await encryptVault(updatedVault, password, { kdf_params: kdfParams, kdf_salt: kdfSalt });
 
-      const response = await fetch('/api/vault', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...encrypted, salt, params, version: vault.version }),
-      });
+      try {
+        const response = await fetch('/api/vault', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ login, ...encrypted }),
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        if (response.status === 409) {
-          toast({ variant: 'destructive', title: 'Conflict Detected', description: "Your vault is out of sync. Please unlock it again to get the latest version before making changes." });
-        } else {
+        if (!response.ok) {
+          const errorData = await response.json();
+          if (response.status === 409) {
+            toast({ variant: 'destructive', title: 'Conflict Detected', description: "Your vault is out of sync. Please unlock it again to get the latest version before making changes." });
+            return;
+          }
           throw new Error(errorData.error || 'Failed to save item.');
         }
-        return;
+        await persistEncryptedVault(login, encrypted);
+        setVault(updatedVault);
+        toast({ title: 'Success!', description: `Item has been ${isEditing ? 'updated' : 'added'}.` });
+        onOpenChange(false);
+      } catch (networkError) {
+        // Offline-first: persist locally and notify the user to sync later
+        await persistEncryptedVault(login, encrypted);
+        setVault(updatedVault);
+        toast({
+          title: 'Saved Locally',
+          description: 'No server connection. Your change is stored locally and will need a manual sync.',
+        });
+        onOpenChange(false);
       }
-      
-      const responseData = await response.json();
-      setVault({ ...updatedVault, version: responseData.version });
-      toast({ title: 'Success!', description: `Item has been ${isEditing ? 'updated' : 'added'}.` });
-      onOpenChange(false);
     } catch (error) {
       console.error(error);
       toast({
@@ -111,12 +129,12 @@ export default function AddEditItemDialog({ itemToEdit, isOpen, onOpenChange }: 
         <DialogHeader>
           <DialogTitle className="font-headline">{isEditing ? 'Edit Item' : 'Add New Item'}</DialogTitle>
           <DialogDescription>
-            {isEditing ? `Make changes to "${itemToEdit.name}".` : 'Enter the details for the new vault item.'}
+            {isEditing ? `Make changes to "${itemToEdit.title}".` : 'Enter the details for the new vault item.'}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-            <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Name</FormLabel><FormControl><Input placeholder="e.g., Google Account" {...field} /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={form.control} name="title" render={({ field }) => ( <FormItem><FormLabel>Title</FormLabel><FormControl><Input placeholder="e.g., Google Account" {...field} /></FormControl><FormMessage /></FormItem> )} />
             <FormField control={form.control} name="username" render={({ field }) => ( <FormItem><FormLabel>Username/Email</FormLabel><FormControl><Input placeholder="e.g., user@example.com" {...field} /></FormControl><FormMessage /></FormItem> )} />
             <FormField control={form.control} name="password" render={({ field }) => ( <FormItem><FormLabel>Password</FormLabel><FormControl><Input type="password" placeholder="••••••••••••" {...field} /></FormControl><FormMessage /></FormItem> )} />
             <FormField control={form.control} name="url" render={({ field }) => ( <FormItem><FormLabel>URL</FormLabel><FormControl><Input placeholder="https://example.com" {...field} /></FormControl><FormMessage /></FormItem> )} />

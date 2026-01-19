@@ -1,53 +1,65 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { getUserByLogin, updateVault } from '@/lib/db';
 
-// This is an in-memory "database" to simulate a real backend.
-// In a real application, this would be a persistent database.
-let vaultStore: {
-  ciphertext: string;
-  nonce: string;
-  salt: string;
-  params: any;
-  version: number;
-} | null = null;
+const updateSchema = z.object({
+  login: z.string().min(3).max(64).regex(/^[a-zA-Z0-9._-]+$/),
+  vault_ciphertext: z.string().min(1),
+  vault_nonce: z.string().min(1),
+  vault_version: z.number().int().nonnegative(),
+});
 
-export async function GET() {
-  if (!vaultStore) {
-    return NextResponse.json({ error: 'No vault found. Please register first.' }, { status: 404 });
+export async function GET(req: NextRequest) {
+  const login = req.nextUrl.searchParams.get('login');
+  if (!login) {
+    return NextResponse.json({ error: 'Login is required' }, { status: 400 });
   }
-  return NextResponse.json(vaultStore);
+
+  const user = getUserByLogin(login.toLowerCase());
+  if (!user) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    vault_ciphertext: user.vault_ciphertext.toString('base64'),
+    vault_nonce: user.vault_nonce.toString('base64'),
+    kdf_salt: user.kdf_salt.toString('base64'),
+    kdf_params: JSON.parse(user.kdf_params),
+    vault_version: user.vault_version,
+  });
 }
 
 export async function PUT(request: Request) {
   try {
-    const body = await request.json();
-    const { ciphertext, nonce, salt, params, version } = body;
+    const json = await request.json();
+    const parsed = updateSchema.parse(json);
+    const login = parsed.login.toLowerCase();
 
-    if (!ciphertext || !nonce || !salt || !params || version === undefined) {
-      return NextResponse.json({ error: 'Missing required vault data' }, { status: 400 });
+    const user = getUserByLogin(login);
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // On initial save (registration), vaultStore is null
-    if (vaultStore === null) {
-        vaultStore = { ...body, version: 1 };
-        return NextResponse.json({ message: 'Vault created successfully', version: vaultStore.version });
-    }
-
-    // Conflict resolution: The incoming version must match the stored version.
-    if (version !== vaultStore.version) {
+    if (parsed.vault_version <= user.vault_version) {
       return NextResponse.json(
-        {
-          error: 'Conflict: The vault has been updated elsewhere. Please unlock again to get the latest version.',
-          serverVersion: vaultStore.version,
-        },
+        { error: 'Conflict', serverVersion: user.vault_version },
         { status: 409 }
       );
     }
-    
-    // Update the vault and increment the version
-    vaultStore = { ...body, version: vaultStore.version + 1 };
 
-    return NextResponse.json({ message: 'Vault updated successfully', version: vaultStore.version });
+    updateVault(
+      login,
+      Buffer.from(parsed.vault_ciphertext, 'base64'),
+      Buffer.from(parsed.vault_nonce, 'base64'),
+      parsed.vault_version
+    );
+
+    return NextResponse.json({ vault_version: parsed.vault_version });
   } catch (error) {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    console.error('Vault update failed', error);
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid payload', details: error.flatten() }, { status: 400 });
+    }
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

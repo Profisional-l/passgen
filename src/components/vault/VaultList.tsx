@@ -8,7 +8,7 @@ import { KeyRound } from 'lucide-react';
 export default function VaultList() {
   const { vault } = useVault();
 
-  if (!vault || vault.items.length === 0) {
+  if (!vault || vault.entries.length === 0) {
     return (
       <Card className="border-dashed border-2 bg-transparent">
         <CardContent className="p-12 text-center">
@@ -22,7 +22,7 @@ export default function VaultList() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {vault.items.map(item => (
+      {vault.entries.map(item => (
         <VaultItem key={item.id} item={item} />
       ))}
     </div>
