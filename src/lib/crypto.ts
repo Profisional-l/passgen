@@ -21,14 +21,15 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 export const stringToArrayBuffer = (str: string): Uint8Array => enc.encode(str);
-export const arrayBufferToString = (buffer: ArrayBuffer): string => dec.decode(buffer);
-export const arrayBufferToBase64 = (buffer: ArrayBuffer): string =>
+export const arrayBufferToString = (buffer: ArrayBuffer | Uint8Array): string => 
+  dec.decode(buffer instanceof Uint8Array ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) : buffer);
+export const arrayBufferToBase64 = (buffer: ArrayBuffer | Uint8Array): string =>
   btoa(String.fromCharCode(...new Uint8Array(buffer)));
 export const base64ToArrayBuffer = (base64: string): Uint8Array =>
   Uint8Array.from(atob(base64), c => c.charCodeAt(0));
 
 export const generateSalt = (length = 16): Uint8Array =>
-  crypto.getRandomValues(new Uint8Array(length));
+  globalThis.crypto.getRandomValues(new Uint8Array(length));
 
 export const getDefaultKdfParams = (): KDFParams => DEFAULT_ARGON2_PARAMS;
 
@@ -36,6 +37,7 @@ async function deriveMasterKeyBytes(password: string, salt: Uint8Array, params: 
   if (params.algorithm === 'argon2id') {
     try {
       // Prefer bundled build to avoid WASM loader issues in some bundlers (e.g. Turbopack)
+      // @ts-ignore - argon2-browser doesn't have type declarations
       const argon2: any = await import('argon2-browser/dist/argon2-bundled.min.js');
       const { hash } = await argon2.hash({
         pass: password,
@@ -54,18 +56,19 @@ async function deriveMasterKeyBytes(password: string, salt: Uint8Array, params: 
     }
   }
 
-  const masterKey = await crypto.subtle.importKey(
+  const { subtle } = globalThis.crypto;
+  const masterKey = await subtle.importKey(
     'raw',
-    stringToArrayBuffer(password),
+    stringToArrayBuffer(password) as any,
     { name: 'PBKDF2' },
     false,
     ['deriveBits']
   );
 
-  const bits = await crypto.subtle.deriveBits(
+  const bits = await subtle.deriveBits(
     {
       name: 'PBKDF2',
-      salt,
+      salt: salt as any,
       iterations: params.iterations,
       hash: params.hash,
     },
@@ -77,14 +80,15 @@ async function deriveMasterKeyBytes(password: string, salt: Uint8Array, params: 
 }
 
 async function deriveEncryptionKey(masterKeyBytes: ArrayBuffer): Promise<CryptoKey> {
-  const masterKey = await crypto.subtle.importKey('raw', masterKeyBytes, 'HKDF', false, ['deriveKey']);
+  const { subtle } = globalThis.crypto;
+  const masterKey = await subtle.importKey('raw', new Uint8Array(masterKeyBytes), 'HKDF', false, ['deriveKey']);
 
-  return crypto.subtle.deriveKey(
+  return subtle.deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
       salt: new Uint8Array([]),
-      info: stringToArrayBuffer('vault-encryption'),
+      info: stringToArrayBuffer('vault-encryption') as any,
     },
     masterKey,
     { name: 'AES-GCM', length: 256 },
@@ -104,12 +108,13 @@ export async function encryptVault(
   const kdf_params = opts?.kdf_params ?? getDefaultKdfParams();
   const masterBytes = await deriveMasterKeyBytes(password, kdf_salt_bytes, kdf_params);
   const encryptionKey = await deriveEncryptionKey(masterBytes);
-  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const nonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const { subtle } = globalThis.crypto;
 
-  const ciphertext = await crypto.subtle.encrypt(
+  const ciphertext = await subtle.encrypt(
     { name: 'AES-GCM', iv: nonce },
     encryptionKey,
-    stringToArrayBuffer(JSON.stringify(vault))
+    stringToArrayBuffer(JSON.stringify(vault)) as any
   );
 
   return {
@@ -127,12 +132,13 @@ export async function decryptVault(
 ): Promise<Vault> {
   const masterBytes = await deriveMasterKeyBytes(password, base64ToArrayBuffer(payload.kdf_salt), payload.kdf_params);
   const encryptionKey = await deriveEncryptionKey(masterBytes);
+  const { subtle } = globalThis.crypto;
 
   try {
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: base64ToArrayBuffer(payload.vault_nonce) },
+    const decrypted = await subtle.decrypt(
+      { name: 'AES-GCM', iv: base64ToArrayBuffer(payload.vault_nonce) as any },
       encryptionKey,
-      base64ToArrayBuffer(payload.vault_ciphertext)
+      base64ToArrayBuffer(payload.vault_ciphertext) as any
     );
     return JSON.parse(arrayBufferToString(decrypted));
   } catch (error) {
@@ -163,7 +169,7 @@ export function generatePassword(length: number, charSets: CharacterSet[], exclu
   }
 
   const randomValues = new Uint32Array(length);
-  crypto.getRandomValues(randomValues);
+  globalThis.crypto.getRandomValues(randomValues);
 
   let password = '';
   for (let i = 0; i < length; i++) {
