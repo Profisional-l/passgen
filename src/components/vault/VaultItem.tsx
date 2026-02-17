@@ -72,7 +72,11 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
         kdf_params: kdfParams,
         kdf_salt: kdfSalt,
       });
-      try {
+
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      const attemptDelete = async (): Promise<boolean> => {
         const response = await fetch("/api/vault", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -81,19 +85,39 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
 
         if (!response.ok) {
           const errorData = await response.json();
-          if (response.status === 409) {
-            toast({
-              variant: "destructive",
-              title: "Conflict Detected",
-              description:
-                "Your vault is out of sync. Please unlock it again to get the latest version before making changes.",
+          if (response.status === 409 && retryCount < maxRetries) {
+            // Conflict: fetch latest version and retry
+            retryCount++;
+            toast({ 
+              title: 'Syncing...', 
+              description: `Vault version conflict. Syncing with server (attempt ${retryCount}/${maxRetries})...` 
             });
-          } else {
-            throw new Error(errorData.error || "Failed to delete item.");
+            
+            try {
+              const getResponse = await fetch(`/api/vault?login=${encodeURIComponent(login)}`);
+              if (!getResponse.ok) throw new Error('Failed to fetch latest vault');
+              
+              const serverData = await getResponse.json();
+              // Update local version to match server and retry
+              updatedVault.vault_version = serverData.vault_version + 1;
+              const newEncrypted = await encryptVault(updatedVault, password, { kdf_params: kdfParams, kdf_salt: kdfSalt });
+              
+              // Re-assign encrypted for the next attempt
+              Object.assign(encrypted, newEncrypted);
+              
+              return await attemptDelete();
+            } catch (syncError) {
+              toast({ variant: 'destructive', title: 'Sync Failed', description: 'Could not resolve vault conflict. Please refresh and try again.' });
+              return false;
+            }
           }
-          return;
+          throw new Error(errorData.error || "Failed to delete item.");
         }
+        return true;
+      };
 
+      const success = await attemptDelete();
+      if (success) {
         await persistEncryptedVault(login, encrypted);
         setVault(updatedVault);
         toast({
