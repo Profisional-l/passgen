@@ -124,7 +124,7 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
           title: "Item Deleted",
           description: `"${item.title}" has been removed from your vault.`,
         });
-      } catch (networkError) {
+      } else {
         await persistEncryptedVault(login, encrypted);
         setVault(updatedVault);
         toast({
