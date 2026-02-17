@@ -5,7 +5,6 @@ import type { VaultEntry } from "@/lib/types";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -20,8 +19,9 @@ import { Copy, Eye, EyeOff, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import AddEditItemDialog from "./AddEditItemDialog";
 import { useVault } from "@/context/VaultContext";
-import { encryptVault } from "@/lib/crypto";
+import { encryptVault, decryptVault } from "@/lib/crypto";
 import { persistEncryptedVault } from "@/lib/storage";
+import { mergeVaults } from "@/lib/sync";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,7 +74,7 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
       });
 
       let retryCount = 0;
-      const maxRetries = 3;
+      const maxRetries = 2;
       
       const attemptDelete = async (): Promise<boolean> => {
         const response = await fetch("/api/vault", {
@@ -86,11 +86,10 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
         if (!response.ok) {
           const errorData = await response.json();
           if (response.status === 409 && retryCount < maxRetries) {
-            // Conflict: fetch latest version and retry
             retryCount++;
             toast({ 
-              title: 'Syncing...', 
-              description: `Vault version conflict. Syncing with server (attempt ${retryCount}/${maxRetries})...` 
+              title: '🔄 Merging changes...', 
+              description: `Vault updated on another device. Merging... (attempt ${retryCount}/${maxRetries})` 
             });
             
             try {
@@ -98,16 +97,41 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
               if (!getResponse.ok) throw new Error('Failed to fetch latest vault');
               
               const serverData = await getResponse.json();
-              // Update local version to match server and retry
-              updatedVault.vault_version = serverData.vault_version + 1;
-              const newEncrypted = await encryptVault(updatedVault, password, { kdf_params: kdfParams, kdf_salt: kdfSalt });
               
-              // Re-assign encrypted for the next attempt
-              Object.assign(encrypted, newEncrypted);
+              // Decrypt server version
+              const serverVault = await decryptVault(
+                {
+                  vault_ciphertext: serverData.vault_ciphertext,
+                  vault_nonce: serverData.vault_nonce,
+                  kdf_salt: serverData.kdf_salt,
+                  kdf_params: serverData.kdf_params,
+                  vault_version: serverData.vault_version,
+                },
+                password,
+              );
+
+              // Merge locally updated vault with server vault
+              const mergedVault = mergeVaults(updatedVault, serverVault);
+
+              // Encrypt merged vault
+              const mergedEncrypted = await encryptVault(mergedVault, password, { 
+                kdf_params: kdfParams, 
+                kdf_salt: kdfSalt 
+              });
+
+              // Update reference and retry
+              Object.assign(encrypted, mergedEncrypted);
+              updatedVault.vault_version = mergedVault.vault_version;
+              updatedVault.entries = mergedVault.entries;
               
               return await attemptDelete();
             } catch (syncError) {
-              toast({ variant: 'destructive', title: 'Sync Failed', description: 'Could not resolve vault conflict. Please refresh and try again.' });
+              console.error('Merge failed:', syncError);
+              toast({ 
+                variant: 'destructive', 
+                title: 'Merge Failed', 
+                description: 'Could not merge vault changes. Please refresh and try again.' 
+              });
               return false;
             }
           }

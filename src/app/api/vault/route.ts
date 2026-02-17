@@ -40,13 +40,19 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
+    // Check version conflict
     if (parsed.vault_version <= user.vault_version) {
       return NextResponse.json(
-        { error: 'Conflict', serverVersion: user.vault_version },
+        { 
+          error: 'Conflict', 
+          serverVersion: user.vault_version,
+          message: 'Your vault is out of sync. Please fetch the latest version and merge your changes.',
+        },
         { status: 409 }
       );
     }
 
+    // Update vault
     updateVault(
       login,
       Buffer.from(parsed.vault_ciphertext, 'base64'),
@@ -54,7 +60,10 @@ export async function PUT(request: Request) {
       parsed.vault_version
     );
 
-    return NextResponse.json({ vault_version: parsed.vault_version });
+    return NextResponse.json({ 
+      vault_version: parsed.vault_version,
+      message: 'Vault updated successfully',
+    }, { status: 200 });
   } catch (error) {
     console.error('Vault update failed', error);
     if (error instanceof z.ZodError) {
