@@ -2,12 +2,7 @@
 
 import { useState } from "react";
 import type { VaultEntry } from "@/lib/types";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -75,7 +70,7 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
 
       let retryCount = 0;
       const maxRetries = 2;
-      
+
       const attemptDelete = async (): Promise<boolean> => {
         const response = await fetch("/api/vault", {
           method: "PUT",
@@ -87,17 +82,20 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
           const errorData = await response.json();
           if (response.status === 409 && retryCount < maxRetries) {
             retryCount++;
-            toast({ 
-              title: '🔄 Merging changes...', 
-              description: `Vault updated on another device. Merging... (attempt ${retryCount}/${maxRetries})` 
+            toast({
+              title: "🔄 Merging changes...",
+              description: `Vault updated on another device. Merging... (attempt ${retryCount}/${maxRetries})`,
             });
-            
+
             try {
-              const getResponse = await fetch(`/api/vault?login=${encodeURIComponent(login)}`);
-              if (!getResponse.ok) throw new Error('Failed to fetch latest vault');
-              
+              const getResponse = await fetch(
+                `/api/vault?login=${encodeURIComponent(login)}`,
+              );
+              if (!getResponse.ok)
+                throw new Error("Failed to fetch latest vault");
+
               const serverData = await getResponse.json();
-              
+
               // Decrypt server version
               const serverVault = await decryptVault(
                 {
@@ -114,23 +112,28 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
               const mergedVault = mergeVaults(updatedVault, serverVault);
 
               // Encrypt merged vault
-              const mergedEncrypted = await encryptVault(mergedVault, password, { 
-                kdf_params: kdfParams, 
-                kdf_salt: kdfSalt 
-              });
+              const mergedEncrypted = await encryptVault(
+                mergedVault,
+                password,
+                {
+                  kdf_params: kdfParams,
+                  kdf_salt: kdfSalt,
+                },
+              );
 
               // Update reference and retry
               Object.assign(encrypted, mergedEncrypted);
               updatedVault.vault_version = mergedVault.vault_version;
               updatedVault.entries = mergedVault.entries;
-              
+
               return await attemptDelete();
             } catch (syncError) {
-              console.error('Merge failed:', syncError);
-              toast({ 
-                variant: 'destructive', 
-                title: 'Merge Failed', 
-                description: 'Could not merge vault changes. Please refresh and try again.' 
+              console.error("Merge failed:", syncError);
+              toast({
+                variant: "destructive",
+                title: "Merge Failed",
+                description:
+                  "Could not merge vault changes. Please refresh and try again.",
               });
               return false;
             }

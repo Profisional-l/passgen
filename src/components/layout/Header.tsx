@@ -1,19 +1,19 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { LogOut, RefreshCw, AlertCircle } from 'lucide-react';
-import { useVault } from '@/context/VaultContext';
-import { cn } from '@/lib/utils';
-import Logo from '../Logo';
-import AppContainer from './AppContainer';
-import { useState } from 'react';
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { LogOut, RefreshCw, AlertCircle } from "lucide-react";
+import { useVault } from "@/context/VaultContext";
+import { cn } from "@/lib/utils";
+import Logo from "../Logo";
+import AppContainer from "./AppContainer";
+import { useState } from "react";
 
 const navLinks = [
-  { href: '/vault', label: 'Vault' },
-  { href: '/generator', label: 'Generator' },
-  { href: '/settings', label: 'Settings' },
+  { href: "/vault", label: "Vault" },
+  { href: "/generator", label: "Generator" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default function Header() {
@@ -35,13 +35,15 @@ export default function Header() {
       <AppContainer className="flex h-16 items-center">
         <Logo />
         <nav className="ml-8 hidden md:flex items-center space-x-6 text-sm font-medium">
-          {navLinks.map(link => (
+          {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               className={cn(
-                'transition-colors hover:text-primary',
-                pathname === link.href ? 'text-primary' : 'text-muted-foreground'
+                "transition-colors hover:text-primary",
+                pathname === link.href
+                  ? "text-primary"
+                  : "text-muted-foreground",
               )}
             >
               {link.label}
@@ -53,18 +55,27 @@ export default function Header() {
             <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-500">
               <AlertCircle className="h-4 w-4" />
               <span>Update available</span>
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 size="sm"
                 onClick={handleRefresh}
                 disabled={isSyncing}
                 className="ml-2"
               >
-                {isSyncing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {isSyncing ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
               </Button>
             </div>
           )}
-          <Button variant="ghost" size="icon" onClick={lockVault} aria-label="Lock Vault">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={lockVault}
+            aria-label="Lock Vault"
+          >
             <LogOut className="h-5 w-5" />
           </Button>
         </div>

@@ -162,10 +162,14 @@ export default function AddEditItemDialog({
               const mergedVault = mergeVaults(updatedVault, serverVault);
 
               // 4. Encrypt merged vault
-              const mergedEncrypted = await encryptVault(mergedVault, password, {
-                kdf_params: kdfParams,
-                kdf_salt: kdfSalt,
-              });
+              const mergedEncrypted = await encryptVault(
+                mergedVault,
+                password,
+                {
+                  kdf_params: kdfParams,
+                  kdf_salt: kdfSalt,
+                },
+              );
 
               // Update reference and retry
               Object.assign(encrypted, mergedEncrypted);

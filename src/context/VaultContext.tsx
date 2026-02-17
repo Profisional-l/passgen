@@ -1,11 +1,18 @@
-'use client';
+"use client";
 
-import React, { createContext, useContext, useState, ReactNode, useEffect, useRef } from 'react';
-import type { Vault } from '@/lib/types';
-import type { KDFParams } from '@/lib/types';
-import { decryptVault } from '@/lib/crypto';
-import useAutoLock from '@/hooks/useAutoLock';
-import { useRouter } from 'next/navigation';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useEffect,
+  useRef,
+} from "react";
+import type { Vault } from "@/lib/types";
+import type { KDFParams } from "@/lib/types";
+import { decryptVault } from "@/lib/crypto";
+import useAutoLock from "@/hooks/useAutoLock";
+import { useRouter } from "next/navigation";
 
 interface VaultContextType {
   vault: Vault | null;
@@ -17,7 +24,12 @@ interface VaultContextType {
   needsSync: boolean;
   lastSyncAt: number | null;
   serverVersion: number | null;
-  setUnlockedVault: (vault: Vault, password: string, login: string, kdf: { salt: string; params: KDFParams }) => void;
+  setUnlockedVault: (
+    vault: Vault,
+    password: string,
+    login: string,
+    kdf: { salt: string; params: KDFParams },
+  ) => void;
   setVault: (vault: Vault) => void;
   lockVault: () => void;
   checkForUpdates: () => Promise<void>;
@@ -59,17 +71,19 @@ export function VaultProvider({ children }: { children: ReactNode }) {
 
     const checkUpdates = async () => {
       try {
-        const response = await fetch(`/api/vault/version?login=${encodeURIComponent(login)}`);
+        const response = await fetch(
+          `/api/vault/version?login=${encodeURIComponent(login)}`,
+        );
         if (response.ok) {
           const data = await response.json();
           setServerVersion(data.vault_version);
-          
+
           if (data.vault_version > (vault?.vault_version ?? 0)) {
             setNeedsSync(true);
           }
         }
       } catch (e) {
-        console.debug('Vault version check failed (offline)', e);
+        console.debug("Vault version check failed (offline)", e);
       }
     };
 
@@ -91,11 +105,16 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     setKdfSalt(null);
     setKdfParams(null);
     setNeedsSync(false);
-    console.log('Vault locked.');
-    router.push('/unlock');
+    console.log("Vault locked.");
+    router.push("/unlock");
   };
 
-  const setUnlockedVault = (newVault: Vault, password: string, userLogin: string, kdf: { salt: string; params: KDFParams }) => {
+  const setUnlockedVault = (
+    newVault: Vault,
+    password: string,
+    userLogin: string,
+    kdf: { salt: string; params: KDFParams },
+  ) => {
     setVaultInternal(newVault);
     setMasterPassword(password);
     setLogin(userLogin);
@@ -103,7 +122,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     setKdfParams(kdf.params);
     setNeedsSync(false);
   };
-  
+
   const setVault = (newVault: Vault) => {
     setVaultInternal(newVault);
     setLastSyncAt(Date.now());
@@ -113,7 +132,9 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   const checkForUpdates = async () => {
     if (!login) return;
     try {
-      const response = await fetch(`/api/vault/version?login=${encodeURIComponent(login)}`);
+      const response = await fetch(
+        `/api/vault/version?login=${encodeURIComponent(login)}`,
+      );
       if (response.ok) {
         const data = await response.json();
         setServerVersion(data.vault_version);
@@ -122,17 +143,19 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch (e) {
-      console.error('Failed to check vault updates', e);
+      console.error("Failed to check vault updates", e);
     }
   };
 
   const refreshVaultFromServer = async () => {
     if (!login || !masterPassword) return;
-    
+
     try {
-      const response = await fetch(`/api/vault?login=${encodeURIComponent(login)}`);
-      if (!response.ok) throw new Error('Failed to fetch vault');
-      
+      const response = await fetch(
+        `/api/vault?login=${encodeURIComponent(login)}`,
+      );
+      if (!response.ok) throw new Error("Failed to fetch vault");
+
       const serverData = await response.json();
       const freshVault = await decryptVault(
         {
@@ -144,10 +167,10 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         },
         masterPassword,
       );
-      
+
       setVault(freshVault);
     } catch (e) {
-      console.error('Failed to refresh vault', e);
+      console.error("Failed to refresh vault", e);
     }
   };
 
@@ -173,13 +196,15 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     clearSyncFlag,
   };
 
-  return <VaultContext.Provider value={value}>{children}</VaultContext.Provider>;
+  return (
+    <VaultContext.Provider value={value}>{children}</VaultContext.Provider>
+  );
 }
 
 export function useVault() {
   const context = useContext(VaultContext);
   if (context === undefined) {
-    throw new Error('useVault must be used within a VaultProvider');
+    throw new Error("useVault must be used within a VaultProvider");
   }
   return context;
 }
