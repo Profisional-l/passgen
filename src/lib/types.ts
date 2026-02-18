@@ -1,7 +1,7 @@
 export type VaultEntry = {
   id: string;
   title: string;
-  username: string;
+  username?: string;
   password: string;
   url: string;
   notes?: string;

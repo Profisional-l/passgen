@@ -36,7 +36,7 @@ const simpleUUID = () => crypto.randomUUID();
 
 const formSchema = z.object({
   title: z.string().min(1, "Title is required."),
-  username: z.string().min(1, "Username is required."),
+  username: z.string().optional(),
   password: z.string().min(1, "Password is required."),
   url: z.string().url("Please enter a valid URL.").or(z.literal("")),
   notes: z.string().optional(),

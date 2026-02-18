@@ -223,16 +223,18 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
           </DropdownMenu>
         </CardHeader>
         <CardContent className="space-y-4 flex-grow">
-          <div className="flex items-center gap-2">
-            <p className="flex-grow font-mono text-sm">{item.username}</p>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => handleCopy(item.username, "Username")}
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
-          </div>
+          {item.username && (
+            <div className="flex items-center gap-2">
+              <p className="flex-grow font-mono text-sm">{item.username}</p>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleCopy(item.username, "Username")}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <p className="flex-grow font-mono text-sm">
               {showPassword ? item.password : "••••••••••••••••"}
