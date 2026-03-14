@@ -11,7 +11,7 @@ import React, {
 import type { Vault } from "@/lib/types";
 import type { KDFParams } from "@/lib/types";
 import { decryptVault } from "@/lib/crypto";
-import useAutoLock from "@/hooks/useAutoLock";
+import { persistEncryptedVault } from "@/lib/storage";
 import { useRouter } from "next/navigation";
 
 interface VaultContextType {
@@ -20,6 +20,7 @@ interface VaultContextType {
   login: string | null;
   kdfSalt: string | null;
   kdfParams: KDFParams | null;
+  authToken: string | null;
   isLocked: boolean;
   needsSync: boolean;
   lastSyncAt: number | null;
@@ -29,11 +30,12 @@ interface VaultContextType {
     password: string,
     login: string,
     kdf: { salt: string; params: KDFParams },
+    authToken: string,
   ) => void;
   setVault: (vault: Vault) => void;
   lockVault: () => void;
   checkForUpdates: () => Promise<void>;
-  refreshVaultFromServer: () => Promise<void>;
+  refreshVaultFromServer: () => Promise<boolean>;
   clearSyncFlag: () => void;
 }
 
@@ -45,6 +47,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   const [login, setLogin] = useState<string | null>(null);
   const [kdfSalt, setKdfSalt] = useState<string | null>(null);
   const [kdfParams, setKdfParams] = useState<KDFParams | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [needsSync, setNeedsSync] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
   const [serverVersion, setServerVersion] = useState<number | null>(null);
@@ -53,11 +56,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
 
   const isLocked = vault === null || masterPassword === null;
 
-  useAutoLock(3 * 60 * 1000, () => {
-    if (!isLocked) {
-      lockVault();
-    }
-  });
+  // Auto-lock is handled by AppLayout; no duplicate listener here.
 
   // Background sync polling
   useEffect(() => {
@@ -77,10 +76,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         if (response.ok) {
           const data = await response.json();
           setServerVersion(data.vault_version);
-
-          if (data.vault_version > (vault?.vault_version ?? 0)) {
-            setNeedsSync(true);
-          }
+          setNeedsSync(data.vault_version > (vault?.vault_version ?? 0));
         }
       } catch (e) {
         console.debug("Vault version check failed (offline)", e);
@@ -104,8 +100,10 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     setLogin(null);
     setKdfSalt(null);
     setKdfParams(null);
+    setAuthToken(null);
     setNeedsSync(false);
-    console.log("Vault locked.");
+    setLastSyncAt(null);
+    setServerVersion(null);
     router.push("/unlock");
   };
 
@@ -114,18 +112,23 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     password: string,
     userLogin: string,
     kdf: { salt: string; params: KDFParams },
+    token: string,
   ) => {
     setVaultInternal(newVault);
     setMasterPassword(password);
     setLogin(userLogin);
     setKdfSalt(kdf.salt);
     setKdfParams(kdf.params);
+    setAuthToken(token);
     setNeedsSync(false);
+    setServerVersion(newVault.vault_version);
+    setLastSyncAt(Date.now());
   };
 
   const setVault = (newVault: Vault) => {
     setVaultInternal(newVault);
     setLastSyncAt(Date.now());
+    setServerVersion(newVault.vault_version);
     setNeedsSync(false);
   };
 
@@ -138,21 +141,24 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         setServerVersion(data.vault_version);
-        if (data.vault_version > (vault?.vault_version ?? 0)) {
-          setNeedsSync(true);
-        }
+        setNeedsSync(data.vault_version > (vault?.vault_version ?? 0));
       }
     } catch (e) {
       console.error("Failed to check vault updates", e);
     }
   };
 
-  const refreshVaultFromServer = async () => {
-    if (!login || !masterPassword) return;
+  const refreshVaultFromServer = async (): Promise<boolean> => {
+    if (!login || !masterPassword || !authToken) return false;
 
     try {
       const response = await fetch(
         `/api/vault?login=${encodeURIComponent(login)}`,
+        {
+          headers: {
+            "x-vault-auth": authToken,
+          },
+        },
       );
       if (!response.ok) throw new Error("Failed to fetch vault");
 
@@ -168,9 +174,29 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         masterPassword,
       );
 
-      setVault(freshVault);
+      const nextVault = {
+        ...freshVault,
+        vault_version: serverData.vault_version,
+      };
+
+      await persistEncryptedVault(login, {
+        vault_ciphertext: serverData.vault_ciphertext,
+        vault_nonce: serverData.vault_nonce,
+        kdf_salt: serverData.kdf_salt,
+        kdf_params: serverData.kdf_params,
+        vault_version: serverData.vault_version,
+      });
+
+      setVaultInternal(nextVault);
+      setKdfSalt(serverData.kdf_salt);
+      setKdfParams(serverData.kdf_params);
+      setLastSyncAt(Date.now());
+      setServerVersion(serverData.vault_version);
+      setNeedsSync(false);
+      return true;
     } catch (e) {
       console.error("Failed to refresh vault", e);
+      return false;
     }
   };
 
@@ -184,6 +210,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     login,
     kdfSalt,
     kdfParams,
+    authToken,
     isLocked,
     needsSync,
     lastSyncAt,

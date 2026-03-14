@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { insertUser, getUserByLogin } from '@/lib/db';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 
 const registerSchema = z.object({
   login: z.string().min(3).max(64).regex(/^[a-zA-Z0-9._-]+$/, 'Login may contain letters, digits, dot, underscore, dash'),
@@ -16,6 +16,7 @@ const registerSchema = z.object({
     hash: z.literal('SHA-256'),
   }),
   vault_version: z.number().int().nonnegative(),
+  auth_token: z.string().min(1),
 });
 
 export async function POST(request: Request) {
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
       kdf_salt: Buffer.from(parsed.kdf_salt, 'base64'),
       kdf_params: JSON.stringify(parsed.kdf_params),
       vault_version: parsed.vault_version,
+      auth_token_hash: createHash('sha256').update(Buffer.from(parsed.auth_token, 'base64')).digest(),
     });
 
     return NextResponse.json({ ok: true }, { status: 201 });

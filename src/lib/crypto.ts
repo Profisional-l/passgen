@@ -20,11 +20,14 @@ const FALLBACK_PBKDF2_PARAMS: KDFParams = {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+const toUint8Array = (buffer: ArrayBuffer | Uint8Array): Uint8Array =>
+  buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+
 export const stringToArrayBuffer = (str: string): Uint8Array => enc.encode(str);
 export const arrayBufferToString = (buffer: ArrayBuffer | Uint8Array): string => 
-  dec.decode(buffer instanceof Uint8Array ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) : buffer);
+  dec.decode(toUint8Array(buffer));
 export const arrayBufferToBase64 = (buffer: ArrayBuffer | Uint8Array): string =>
-  btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  btoa(String.fromCharCode(...toUint8Array(buffer)));
 export const base64ToArrayBuffer = (base64: string): Uint8Array =>
   Uint8Array.from(atob(base64), c => c.charCodeAt(0));
 
@@ -97,6 +100,35 @@ async function deriveEncryptionKey(masterKeyBytes: ArrayBuffer): Promise<CryptoK
   );
 }
 
+/**
+ * Derives an authentication token from the master password.
+ * Uses HKDF with info="vault-auth" — cryptographically independent from the encryption key.
+ * The server stores SHA-256(authToken) and never sees the encryption key.
+ */
+export async function deriveAuthToken(
+  password: string,
+  salt: Uint8Array,
+  kdfParams: KDFParams
+): Promise<string> {
+  const masterBytes = await deriveMasterKeyBytes(password, salt, kdfParams);
+  const { subtle } = globalThis.crypto;
+  const masterKey = await subtle.importKey('raw', new Uint8Array(masterBytes), 'HKDF', false, ['deriveKey']);
+  const authKey = await subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array([]),
+      info: stringToArrayBuffer('vault-auth') as any,
+    },
+    masterKey,
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt']
+  );
+  const rawBytes = await subtle.exportKey('raw', authKey);
+  return arrayBufferToBase64(rawBytes);
+}
+
 // --- VAULT ENCRYPTION/DECRYPTION ---
 export async function encryptVault(
   vault: Vault,
@@ -141,8 +173,7 @@ export async function decryptVault(
       base64ToArrayBuffer(payload.vault_ciphertext) as any
     );
     return JSON.parse(arrayBufferToString(decrypted));
-  } catch (error) {
-    console.error('Decryption failed:', error);
+  } catch {
     throw new Error('Invalid master password or corrupted data.');
   }
 }

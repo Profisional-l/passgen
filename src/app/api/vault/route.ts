@@ -1,13 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getUserByLogin, updateVault } from '@/lib/db';
+import { getUserByLogin, updateVault, setAuthTokenHash } from '@/lib/db';
+import { createHash, timingSafeEqual } from 'crypto';
+
+const base64Schema = z.string().min(1).regex(/^[A-Za-z0-9+/]+={0,2}$/);
 
 const updateSchema = z.object({
   login: z.string().min(3).max(64).regex(/^[a-zA-Z0-9._-]+$/),
-  vault_ciphertext: z.string().min(1),
-  vault_nonce: z.string().min(1),
+  vault_ciphertext: base64Schema,
+  vault_nonce: base64Schema,
   vault_version: z.number().int().nonnegative(),
+  auth_token: base64Schema,
 });
+
+function getProvidedAuthToken(req: NextRequest, fallback?: string | null): string | null {
+  return req.headers.get('x-vault-auth') ?? fallback ?? null;
+}
+
+function verifyOrBootstrapAuthToken(user: ReturnType<typeof getUserByLogin>, providedAuthToken: string | null, login: string) {
+  if (!user || !providedAuthToken) {
+    return false;
+  }
+
+  const computedHash = createHash('sha256').update(Buffer.from(providedAuthToken, 'base64')).digest();
+  const storedHash = user.auth_token_hash;
+
+  if (storedHash) {
+    return timingSafeEqual(computedHash, Buffer.from(storedHash));
+  }
+
+  // Migration path for older rows: first successful password-derived token becomes the stored verifier.
+  setAuthTokenHash(login, computedHash);
+  return true;
+}
 
 export async function GET(req: NextRequest) {
   const login = req.nextUrl.searchParams.get('login');
@@ -18,6 +43,11 @@ export async function GET(req: NextRequest) {
   const user = getUserByLogin(login.toLowerCase());
   if (!user) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
+  const providedAuthToken = getProvidedAuthToken(req);
+  if (!verifyOrBootstrapAuthToken(user, providedAuthToken, login.toLowerCase())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   return NextResponse.json({
@@ -31,6 +61,7 @@ export async function GET(req: NextRequest) {
 
 export async function PUT(request: Request) {
   try {
+    const req = request as NextRequest;
     const json = await request.json();
     const parsed = updateSchema.parse(json);
     const login = parsed.login.toLowerCase();
@@ -38,6 +69,11 @@ export async function PUT(request: Request) {
     const user = getUserByLogin(login);
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    const providedAuthToken = getProvidedAuthToken(req, parsed.auth_token);
+    if (!verifyOrBootstrapAuthToken(user, providedAuthToken, login)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Check version conflict

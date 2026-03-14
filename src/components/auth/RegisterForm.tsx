@@ -1,26 +1,46 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { Button } from '@/components/ui/button';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { useToast } from '@/hooks/use-toast';
-import { buildEmptyVault, encryptVault } from '@/lib/crypto';
-import { persistEncryptedVault } from '@/lib/storage';
-import { Loader2 } from 'lucide-react';
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import {
+  buildEmptyVault,
+  encryptVault,
+  deriveAuthToken,
+  base64ToArrayBuffer,
+} from "@/lib/crypto";
+import { persistEncryptedVault } from "@/lib/storage";
+import { Loader2 } from "lucide-react";
 
-const formSchema = z.object({
-  login: z.string().min(3).max(64).regex(/^[a-zA-Z0-9._-]+$/, { message: 'Login: letters, digits, . _ -' }),
-  password: z.string().min(12, { message: 'Password must be at least 12 characters long.' }),
-  confirmPassword: z.string(),
-}).refine(data => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
-});
+const formSchema = z
+  .object({
+    login: z
+      .string()
+      .min(3)
+      .max(64)
+      .regex(/^[a-zA-Z0-9._-]+$/, { message: "Login: letters, digits, . _ -" }),
+    password: z
+      .string()
+      .min(12, { message: "Password must be at least 12 characters long." }),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
 
 export default function RegisterForm() {
   const router = useRouter();
@@ -30,9 +50,9 @@ export default function RegisterForm() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      login: '',
-      password: '',
-      confirmPassword: '',
+      login: "",
+      password: "",
+      confirmPassword: "",
     },
   });
 
@@ -44,35 +64,43 @@ export default function RegisterForm() {
 
       const encrypted = await encryptVault(emptyVault, values.password);
 
-      const response = await fetch('/api/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const authToken = await deriveAuthToken(
+        values.password,
+        base64ToArrayBuffer(encrypted.kdf_salt),
+        encrypted.kdf_params,
+      );
+
+      const response = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           login,
           ...encrypted,
+          auth_token: authToken,
         }),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create vault.');
+        throw new Error(errorData.error || "Failed to create vault.");
       }
 
       await persistEncryptedVault(login, encrypted);
-      
-      toast({
-        title: 'Vault Created!',
-        description: 'Your secure vault has been created. You can now unlock it.',
-      });
-      
-      router.push('/unlock');
 
+      toast({
+        title: "Vault Created!",
+        description:
+          "Your secure vault has been created. You can now unlock it.",
+      });
+
+      router.push("/unlock");
     } catch (error) {
       console.error(error);
       toast({
-        variant: 'destructive',
-        title: 'Registration Failed',
-        description: error instanceof Error ? error.message : 'An unknown error occurred.',
+        variant: "destructive",
+        title: "Registration Failed",
+        description:
+          error instanceof Error ? error.message : "An unknown error occurred.",
       });
     } finally {
       setIsLoading(false);
@@ -89,7 +117,12 @@ export default function RegisterForm() {
             <FormItem>
               <FormLabel>Login</FormLabel>
               <FormControl>
-                <Input placeholder="e.g. vanya" autoCapitalize="none" autoCorrect="off" {...field} />
+                <Input
+                  placeholder="e.g. vanya"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -102,7 +135,12 @@ export default function RegisterForm() {
             <FormItem>
               <FormLabel>Master Password</FormLabel>
               <FormControl>
-                <Input type="password" placeholder="••••••••••••" {...field} />
+                <Input
+                  type="password"
+                  placeholder="••••••••••••"
+                  autoComplete="new-password"
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -115,7 +153,12 @@ export default function RegisterForm() {
             <FormItem>
               <FormLabel>Confirm Master Password</FormLabel>
               <FormControl>
-                <Input type="password" placeholder="••••••••••••" {...field} />
+                <Input
+                  type="password"
+                  placeholder="••••••••••••"
+                  autoComplete="new-password"
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>

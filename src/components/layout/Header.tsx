@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LogOut, RefreshCw, AlertCircle } from "lucide-react";
 import { useVault } from "@/context/VaultContext";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import Logo from "../Logo";
 import AppContainer from "./AppContainer";
@@ -17,6 +18,7 @@ const navLinks = [
 ];
 
 export default function Header() {
+  const { toast } = useToast();
   const { lockVault, needsSync, refreshVaultFromServer } = useVault();
   const [isSyncing, setIsSyncing] = useState(false);
   const pathname = usePathname();
@@ -24,7 +26,19 @@ export default function Header() {
   const handleRefresh = async () => {
     setIsSyncing(true);
     try {
-      await refreshVaultFromServer();
+      const refreshed = await refreshVaultFromServer();
+      if (refreshed) {
+        toast({
+          title: "Vault updated",
+          description: "This device now uses the latest encrypted copy.",
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Update failed",
+          description: "Could not refresh the vault from the server.",
+        });
+      }
     } finally {
       setIsSyncing(false);
     }
@@ -34,7 +48,7 @@ export default function Header() {
     <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-lg">
       <AppContainer className="flex h-16 items-center">
         <Logo />
-        <nav className="ml-8 hidden md:flex items-center space-x-6 text-sm font-medium">
+        <nav className="ml-8 md:flex items-center space-x-6 text-sm font-medium">
           {navLinks.map((link) => (
             <Link
               key={link.href}

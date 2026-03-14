@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       vault_version: user.vault_version,
+      kdf_salt: user.kdf_salt.toString('base64'),
+      kdf_params: JSON.parse(user.kdf_params),
       updated_at: user.updated_at,
     });
   } catch (error) {

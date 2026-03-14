@@ -54,8 +54,15 @@ export default function AddEditItemDialog({
   onOpenChange,
 }: AddEditItemDialogProps) {
   const { toast } = useToast();
-  const { vault, setVault, masterPassword, login, kdfParams, kdfSalt } =
-    useVault();
+  const {
+    vault,
+    setVault,
+    masterPassword,
+    login,
+    kdfParams,
+    kdfSalt,
+    authToken,
+  } = useVault();
   const [isLoading, setIsLoading] = useState(false);
   const isEditing = !!itemToEdit;
 
@@ -72,7 +79,14 @@ export default function AddEditItemDialog({
   }, [itemToEdit, form, isOpen]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!vault || !masterPassword || !login || !kdfParams || !kdfSalt) {
+    if (
+      !vault ||
+      !masterPassword ||
+      !login ||
+      !kdfParams ||
+      !kdfSalt ||
+      !authToken
+    ) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -124,7 +138,7 @@ export default function AddEditItemDialog({
         const response = await fetch("/api/vault", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ login, ...encrypted }),
+          body: JSON.stringify({ login, ...encrypted, auth_token: authToken }),
         });
 
         if (!response.ok) {
@@ -140,6 +154,11 @@ export default function AddEditItemDialog({
               // 1. Fetch latest server version
               const getResponse = await fetch(
                 `/api/vault?login=${encodeURIComponent(login)}`,
+                {
+                  headers: {
+                    "x-vault-auth": authToken,
+                  },
+                },
               );
               if (!getResponse.ok)
                 throw new Error("Failed to fetch latest vault");
@@ -173,6 +192,8 @@ export default function AddEditItemDialog({
 
               // Update reference and retry
               Object.assign(encrypted, mergedEncrypted);
+              // auth_token stays the same (same password, same salt)
+              Object.assign(encrypted, { auth_token: authToken });
               updatedVault.vault_version = mergedVault.vault_version;
               updatedVault.entries = mergedVault.entries;
 

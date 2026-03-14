@@ -21,6 +21,7 @@ db.prepare(
     kdf_salt BLOB NOT NULL,
     kdf_params TEXT NOT NULL,
     vault_version INTEGER NOT NULL,
+    auth_token_hash BLOB,
     updated_at TEXT NOT NULL
   )`
 ).run();
@@ -28,7 +29,7 @@ db.prepare(
 // Best-effort migration from legacy column `email` -> `login` (for existing local DBs).
 // If the table was created previously with `email`, add `login` and backfill.
 try {
-  const columns: Array<{ name: string }> = db.prepare(`PRAGMA table_info(users)`).all();
+  const columns = db.prepare<{ name: string }>(`PRAGMA table_info(users)`).all();
   const hasLogin = columns.some(c => c.name === 'login');
   const hasEmail = columns.some(c => c.name === 'email');
 
@@ -44,6 +45,16 @@ try {
   console.warn('DB migration check failed', e);
 }
 
+// Migration: add auth_token_hash column if missing (introduced after initial release)
+try {
+  const cols = db.prepare<{ name: string }>(`PRAGMA table_info(users)`).all();
+  if (!cols.some(c => c.name === 'auth_token_hash')) {
+    db.prepare(`ALTER TABLE users ADD COLUMN auth_token_hash BLOB`).run();
+  }
+} catch (e) {
+  console.warn('DB auth_token_hash migration failed', e);
+}
+
 export type UserRow = {
   id: string;
   login: string;
@@ -52,28 +63,33 @@ export type UserRow = {
   kdf_salt: Buffer;
   kdf_params: string;
   vault_version: number;
+  auth_token_hash: Buffer | null;
   updated_at: string;
 };
 
 export function getUserByLogin(login: string): UserRow | undefined {
   // Support both schemas during migration: prefer login, fallback to email column if present.
-  const columns: Array<{ name: string }> = db.prepare(`PRAGMA table_info(users)`).all();
+  const columns = db.prepare<{ name: string }>(`PRAGMA table_info(users)`).all();
   const hasLogin = columns.some(c => c.name === 'login');
   if (hasLogin) {
-    return db.prepare<UserRow>('SELECT id, login, vault_ciphertext, vault_nonce, kdf_salt, kdf_params, vault_version, updated_at FROM users WHERE login = ?').get(login);
+    return db.prepare<UserRow>('SELECT id, login, vault_ciphertext, vault_nonce, kdf_salt, kdf_params, vault_version, auth_token_hash, updated_at FROM users WHERE login = ?').get(login);
   }
   // Legacy
-  return db.prepare<any>('SELECT id, LOWER(email) as login, vault_ciphertext, vault_nonce, kdf_salt, kdf_params, vault_version, updated_at FROM users WHERE LOWER(email) = ?').get(login);
+  return db.prepare<any>('SELECT id, LOWER(email) as login, vault_ciphertext, vault_nonce, kdf_salt, kdf_params, vault_version, NULL as auth_token_hash, updated_at FROM users WHERE LOWER(email) = ?').get(login);
 }
 
 export function insertUser(user: Omit<UserRow, 'updated_at'>): void {
   db.prepare(
-    `INSERT INTO users (id, login, vault_ciphertext, vault_nonce, kdf_salt, kdf_params, vault_version, updated_at)
-     VALUES (@id, @login, @vault_ciphertext, @vault_nonce, @kdf_salt, @kdf_params, @vault_version, datetime('now'))`
+    `INSERT INTO users (id, login, vault_ciphertext, vault_nonce, kdf_salt, kdf_params, vault_version, auth_token_hash, updated_at)
+     VALUES (@id, @login, @vault_ciphertext, @vault_nonce, @kdf_salt, @kdf_params, @vault_version, @auth_token_hash, datetime('now'))`
   ).run({
     ...user,
     updated_at: new Date().toISOString(),
   } as any);
+}
+
+export function setAuthTokenHash(login: string, hash: Buffer): void {
+  db.prepare(`UPDATE users SET auth_token_hash = ? WHERE login = ?`).run(hash, login);
 }
 
 export function updateVault(login: string, ciphertext: Buffer, nonce: Buffer, vaultVersion: number): void {

@@ -2,40 +2,37 @@
 
 import { useState } from "react";
 import type { VaultEntry } from "@/lib/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Copy, Eye, EyeOff, MoreVertical, Pencil, Trash2 } from "lucide-react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { Copy, Eye, EyeOff, ExternalLink, Pencil, Trash2, ChevronRight, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import AddEditItemDialog from "./AddEditItemDialog";
 import { useVault } from "@/context/VaultContext";
 import { encryptVault, decryptVault } from "@/lib/crypto";
 import { persistEncryptedVault } from "@/lib/storage";
 import { mergeVaults } from "@/lib/sync";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 
 export default function VaultItem({ item }: { item: VaultEntry }) {
   const { toast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const { vault, setVault, masterPassword, login, kdfParams, kdfSalt } =
-    useVault();
+  const [isDeleteConfirm, setIsDeleteConfirm] = useState(false);
+  const {
+    vault,
+    setVault,
+    masterPassword,
+    login,
+    kdfParams,
+    kdfSalt,
+    authToken,
+  } = useVault();
 
   const handleCopy = (text: string | undefined, fieldName: string) => {
     if (!text) return;
@@ -44,7 +41,14 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
   };
 
   const handleDelete = async () => {
-    if (!vault || !masterPassword || !login || !kdfParams || !kdfSalt) {
+    if (
+      !vault ||
+      !masterPassword ||
+      !login ||
+      !kdfParams ||
+      !kdfSalt ||
+      !authToken
+    ) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -75,7 +79,7 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
         const response = await fetch("/api/vault", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ login, ...encrypted }),
+          body: JSON.stringify({ login, ...encrypted, auth_token: authToken }),
         });
 
         if (!response.ok) {
@@ -90,6 +94,11 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
             try {
               const getResponse = await fetch(
                 `/api/vault?login=${encodeURIComponent(login)}`,
+                {
+                  headers: {
+                    "x-vault-auth": authToken,
+                  },
+                },
               );
               if (!getResponse.ok)
                 throw new Error("Failed to fetch latest vault");
@@ -123,6 +132,7 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
 
               // Update reference and retry
               Object.assign(encrypted, mergedEncrypted);
+              Object.assign(encrypted, { auth_token: authToken });
               updatedVault.vault_version = mergedVault.vault_version;
               updatedVault.entries = mergedVault.entries;
 
@@ -144,6 +154,12 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
       };
 
       const success = await attemptDelete();
+      // Close dialogs FIRST so Radix can remove pointer-events:none from body
+      // before the component unmounts (otherwise UI freezes).
+      setIsDeleteConfirm(false);
+      setIsDetailOpen(false);
+      // Wait for the 200ms close animation to complete, then update state.
+      await new Promise((r) => setTimeout(r, 250));
       if (success) {
         await persistEncryptedVault(login, encrypted);
         setVault(updatedVault);
@@ -167,113 +183,221 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
         description:
           e instanceof Error ? e.message : "An unknown error occurred.",
       });
-    } finally {
-      setIsDeleting(false);
     }
   };
 
+  const initial = item.title.charAt(0).toUpperCase();
+  const safeUrl =
+    item.url && /^https?:\/\//i.test(item.url) ? item.url : undefined;
+
   return (
     <>
-      <Card className="bg-card/50 backdrop-blur-lg border border-border/30 flex flex-col">
-        <CardHeader className="flex-row items-start gap-4">
-          <div className="flex-grow">
-            <CardTitle className="font-headline">{item.title}</CardTitle>
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 flex-shrink-0"
-              >
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setIsEditing(true)}>
-                <Pencil className="mr-2 h-4 w-4" /> Edit
-              </DropdownMenuItem>
-              <AlertDialog onOpenChange={setIsDeleting} open={isDeleting}>
-                <AlertDialogTrigger asChild>
-                  <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                    <Trash2 className="mr-2 h-4 w-4 text-destructive" />
-                    <span className="text-destructive">Delete</span>
-                  </DropdownMenuItem>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete "{item.title}". This action
-                      cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDelete}
-                      className="bg-destructive hover:bg-destructive/90"
-                    >
-                      Continue
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </CardHeader>
-        <CardContent className="space-y-4 flex-grow">
-          {item.username && (
-            <div className="flex items-center gap-2">
-              <p className="flex-grow font-mono text-sm">{item.username}</p>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handleCopy(item.username, "Username")}
-              >
-                <Copy className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <p className="flex-grow font-mono text-sm">
-              {showPassword ? item.password : "••••••••••••••••"}
+      {/* Compact list row */}
+      <button
+        onClick={() => setIsDetailOpen(true)}
+        className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-muted/50 transition-colors text-left group"
+      >
+        <div className="flex-shrink-0 w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary select-none">
+          {initial}
+        </div>
+        <div className="flex-grow min-w-0">
+          <p className="font-medium truncate">{item.title}</p>
+          {(item.username || safeUrl) && (
+            <p className="text-xs text-muted-foreground truncate">
+              {item.username || item.url}
             </p>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowPassword(!showPassword)}
-            >
-              {showPassword ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => handleCopy(item.password, "Password")}
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
-          </div>
-          {item.url && (
-            <div className="flex items-center gap-2">
-              <p className="flex-grow text-sm text-muted-foreground truncate">
-                {item.url}
+          )}
+        </div>
+        <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+      </button>
+
+      {/* Detail dialog */}
+      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-base font-bold text-primary select-none">
+                {initial}
+              </div>
+              <DialogTitle className="font-headline text-xl">
+                {item.title}
+              </DialogTitle>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-3 pt-1">
+            {item.username && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Username / Email
+                </p>
+                <div className="flex items-center gap-2 bg-muted/40 rounded-md px-3 py-2">
+                  <p className="flex-grow font-mono text-sm truncate">
+                    {item.username}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 flex-shrink-0"
+                    onClick={() => handleCopy(item.username, "Username")}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                Password
               </p>
+              <div className="flex items-center gap-2 bg-muted/40 rounded-md px-3 py-2">
+                <p className="flex-grow font-mono text-sm truncate">
+                  {showPassword ? item.password : "••••••••••••"}
+                </p>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 flex-shrink-0"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Eye className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 flex-shrink-0"
+                  onClick={() => handleCopy(item.password, "Password")}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            {item.url && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                  URL
+                </p>
+                <div className="flex items-center gap-2 bg-muted/40 rounded-md px-3 py-2">
+                  <p className="flex-grow text-sm text-muted-foreground truncate">
+                    {item.url}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 flex-shrink-0"
+                    onClick={() => handleCopy(item.url, "URL")}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                  {safeUrl && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 flex-shrink-0"
+                      asChild
+                    >
+                      <a
+                        href={safeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {item.notes && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Notes
+                </p>
+                <div className="bg-muted/40 rounded-md px-3 py-2">
+                  <p className="text-sm whitespace-pre-wrap break-words">
+                    {item.notes}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {item.tags && item.tags.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                  Tags
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {item.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="text-xs bg-primary/10 text-primary rounded-full px-2 py-0.5"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          {isDeleteConfirm ? (
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
+                <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Delete &ldquo;{item.title}&rdquo;?</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">This action cannot be undone.</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setIsDeleteConfirm(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={handleDelete}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Confirm Delete
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
               <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handleCopy(item.url, "URL")}
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setIsDetailOpen(false);
+                  setIsEditing(true);
+                }}
               >
-                <Copy className="h-4 w-4" />
+                <Pencil className="mr-2 h-4 w-4" /> Edit
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={() => setIsDeleteConfirm(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" /> Delete
               </Button>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
 
       {isEditing && (
         <AddEditItemDialog

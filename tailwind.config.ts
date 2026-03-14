@@ -90,7 +90,7 @@ export default {
           },
         },
         'pulse-slow': {
-          '50%': { opacity: 0.7 },
+          '50%': { opacity: '0.7' },
         },
       },
       animation: {
