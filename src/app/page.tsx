@@ -1,8 +1,8 @@
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { ShieldCheck, Lock, KeyRound } from 'lucide-react';
-import Logo from '@/components/Logo';
-import AppContainer from '@/components/layout/AppContainer';
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { ShieldCheck, Lock, KeyRound } from "lucide-react";
+import Logo from "@/components/Logo";
+import AppContainer from "@/components/layout/AppContainer";
 
 export default function Home() {
   return (
@@ -21,15 +21,22 @@ export default function Home() {
                 Crypt Keeper
               </h1>
               <p className="text-lg md:text-xl text-muted-foreground font-body">
-                Your personal, secure, and private password vault. All encryption and decryption happens right in your browser. Your master password never leaves your device.
+                Your personal, secure, and private password vault. All
+                encryption and decryption happens right in your browser. Your
+                master password never leaves your device.
               </p>
-              <div className="flex gap-4 justify-center md:justify-start pt-4">
-                <Button asChild size="lg">
+              <div className="flex flex-col sm:flex-row gap-4 justify-center md:justify-start pt-4">
+                <Button asChild size="lg" className="w-full sm:w-auto">
                   <Link href="/register">
                     <Lock className="mr-2" /> Create a New Vault
                   </Link>
                 </Button>
-                <Button asChild variant="secondary" size="lg">
+                <Button
+                  asChild
+                  variant="secondary"
+                  size="lg"
+                  className="w-full sm:w-auto"
+                >
                   <Link href="/unlock">
                     <KeyRound className="mr-2" /> Unlock Existing Vault
                   </Link>
@@ -37,8 +44,11 @@ export default function Home() {
               </div>
             </div>
             <div className="relative flex items-center justify-center p-8">
-               <div className="absolute inset-0 bg-primary/10 rounded-full blur-3xl animate-pulse"></div>
-               <ShieldCheck className="relative h-64 w-64 text-primary animate-pulse-slow" strokeWidth={0.5} />
+              <div className="absolute inset-0 bg-primary/10 rounded-full blur-3xl animate-pulse"></div>
+              <ShieldCheck
+                className="relative h-64 w-64 text-primary animate-pulse-slow"
+                strokeWidth={0.5}
+              />
             </div>
           </div>
         </AppContainer>
@@ -46,7 +56,10 @@ export default function Home() {
 
       <footer className="py-8">
         <AppContainer className="text-center text-muted-foreground text-sm">
-          <p>&copy; {new Date().getFullYear()} Crypt Keeper. All your secrets are safe with you.</p>
+          <p>
+            &copy; {new Date().getFullYear()} Crypt Keeper. All your secrets are
+            safe with you.
+          </p>
         </AppContainer>
       </footer>
     </div>

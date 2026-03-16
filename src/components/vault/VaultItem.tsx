@@ -10,7 +10,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { Copy, Eye, EyeOff, ExternalLink, Pencil, Trash2, ChevronRight, AlertTriangle } from "lucide-react";
+import {
+  Copy,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  Pencil,
+  Trash2,
+  ChevronRight,
+  AlertTriangle,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import AddEditItemDialog from "./AddEditItemDialog";
 import { useVault } from "@/context/VaultContext";
@@ -354,8 +363,12 @@ export default function VaultItem({ item }: { item: VaultEntry }) {
               <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3">
                 <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium">Delete &ldquo;{item.title}&rdquo;?</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">This action cannot be undone.</p>
+                  <p className="text-sm font-medium">
+                    Delete &ldquo;{item.title}&rdquo;?
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    This action cannot be undone.
+                  </p>
                 </div>
               </div>
               <div className="flex gap-2">
